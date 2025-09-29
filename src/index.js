@@ -1,62 +1,89 @@
-import { fetchBreeds, fetchCatByBreed } from './cat-api';
-import { toggleLoader, showElement, hideElement } from './helper/hidden';
+import { fetchImages } from './fetch-images';
+import { renderGallery } from './render';
+import { Notify } from 'notiflix/build/notiflix-notify-aio';
+import SimpleLightbox from 'simplelightbox';
+import 'simplelightbox/dist/simple-lightbox.min.css';
 
-const breedCats = document.querySelector('.breed-select');
-export const loader = document.querySelector('.loader');
-const errorEl = document.querySelector('.error');
-const catInfo = document.querySelector('.cat-info');
+const form = document.querySelector('.search-form');
+const gallery = document.querySelector('.gallery');
+const guard = document.querySelector('.guard');
 
-breedCats.addEventListener('change', selectCat);
+let query = '';
+let currentPage = 1;
+const perPage = 40;
 
-async function loadBreeds() {
-  try {
-    toggleLoader(true);
-    hideElement(breedCats);
-    hideElement(errorEl);
+const options = {
+  root: null,
+  rootMargin: '200px',
+  threshold: 1.0,
+};
 
-    const breeds = await fetchBreeds();
-    console.log;
-    breedCats.innerHTML = breeds
-      .map(breed => `<option value="${breed.id}">${breed.name}</option>`)
-      .join('');
+const observer = new IntersectionObserver(onLoad, options);
 
-    showElement(breedCats);
-  } catch (err) {
-    showElement(errorEl);
-    console.error(err);
-  } finally {
-    toggleLoader(false);
-  }
-}
-
-async function selectCat(evt) {
-  const breedId = evt.target.value;
-  try {
-    toggleLoader(true);
-    hideElement(errorEl);
-
-    const data = await fetchCatByBreed(breedId);
-    console.log(data);
-
-    if (data.length > 0) {
-      const cat = data[0];
-      const breed = cat.breeds[0];
-
-      catInfo.innerHTML = `
-        <img src="${cat.url}" alt="${breed.name}" width="400"/>
-        <h2>${breed.name}</h2>
-        <p><strong>Description:</strong> ${breed.description}</p>
-        <p><strong>Temperament:</strong> ${breed.temperament}</p>
-      `;
-
-      showElement(catInfo);
+function onLoad(entries, observer) {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      currentPage += 1;
+      fetchImages(query, currentPage, perPage)
+        .then(({ data }) => {
+          if (data.totalHits === 0) {
+            alertNoQueryMatch();
+          } else {
+            gallery.insertAdjacentHTML('beforeend', renderGallery(data.hits));
+            simpleLightBoxs = new SimpleLightbox('.gallery a').refresh();
+            const totalPages = Math.ceil(data.totalHits / perPage);
+            if (currentPage === totalPages) {
+              alertEndOfGalary();
+            }
+          }
+        })
+        .catch(error => console.log(error));
     }
-  } catch (err) {
-    showElement(errorEl);
-    console.error(err);
-  } finally {
-    toggleLoader(false);
-  }
+  });
 }
 
-loadBreeds();
+form.addEventListener('submit', searchImages);
+
+function searchImages(evt) {
+  evt.preventDefault();
+  gallery.innerHTML = '';
+  query = evt.currentTarget.searchQuery.value.trim();
+
+  if (query === '') {
+    alertEmptyQuery();
+    return;
+  }
+
+  fetchImages(query, currentPage, perPage)
+    .then(({ data }) => {
+      if (data.totalHits === 0) {
+        alertNoQueryMatch();
+      } else {
+        gallery.insertAdjacentHTML('beforeend', renderGallery(data.hits));
+        observer.observe(guard);
+        simpleLightBoxs = new SimpleLightbox('.gallery a').refresh();
+        alertImagesFound(data);
+      }
+    })
+    .catch(error => console.log(error));
+}
+
+function alertNoQueryMatch() {
+  Notify.failure(
+    'Sorry, there are no images matching your search query. Please try again.'
+  );
+}
+
+function alertImagesFound(data) {
+  Notify.success(`Hooray! We found ${data.totalHits} images.`);
+}
+
+function alertEmptyQuery() {
+  Notify.info(
+    'The search string cannot be empty. Please specify your search query.'
+  );
+}
+
+function alertEndOfGalary() {
+  Notify.warning("We're sorry, but you've reached the end of search results.");
+}
